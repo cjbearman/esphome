@@ -15,7 +15,6 @@ esp32:
 # Enable logging
 logger:
   level: ERROR
-  
 
 # Enable Home Assistant API
 api:
@@ -27,7 +26,7 @@ ota:
 - platform: esphome
 
 # Allow provisioning Wi-Fi via serial
-# improv_serial:
+improv_serial:
 
 wifi:
   # Set up a wifi access point
