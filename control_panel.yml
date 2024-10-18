@@ -1,0 +1,226 @@
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2024.6.0
+  name_add_mac_suffix: false
+  project:
+    name: esphome.web
+    version: dev
+  on_boot: 
+    then:
+      - light.turn_on:
+          id: status
+          brightness: 100%
+          effect: LEDStatus
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption: 
+    key: ${api_key}
+
+# Allow Over-The-Air updates
+ota:
+- platform: esphome
+
+# Allow provisioning Wi-Fi via serial
+# improv_serial:
+
+wifi:
+  # Set up a wifi access point
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  manual_ip:
+    static_ip: ${ip_address}
+    gateway: ${gateway}
+    subnet: ${subnet}
+
+# In combination with the `ap` this allows the user
+# to provision wifi credentials to the device via WiFi AP.
+# captive_portal:
+
+dashboard_import:
+  package_import_url: github://esphome/example-configs/esphome-web/esp32.yaml@main
+  import_full_config: true
+
+# Sets up Bluetooth LE (Only on ESP32) to allow the user
+# to provision wifi credentials to the device.
+#esp32_improv:
+#  authorizer: none
+
+# To have a "next url" for improv serial
+# web_server:
+
+# Sensors to import values from home assistant
+binary_sensor:
+  - platform: homeassistant
+    id: front_door
+    entity_id: binary_sensor.front_door_opening
+  - platform: homeassistant
+    id: back_door
+    entity_id: binary_sensor.back_door_opening
+  - platform: homeassistant
+    id: side_door
+    entity_id: binary_sensor.side_door_opening
+  - platform: homeassistant
+    id: pool_door
+    entity_id: binary_sensor.pool_door_opening
+  - platform: homeassistant
+    id: gdo_small
+    entity_id: binary_sensor.esphome_web_7b1774_gdo_small_state
+  - platform: homeassistant
+    id: gdo_large
+    entity_id: binary_sensor.esphome_web_7b1774_gdo_large_state
+  - platform: homeassistant
+    id: gate
+    entity_id: binary_sensor.gate_web_a8d1a0_closed_endstop
+text_sensor:
+  - platform: homeassistant
+    id: back_door_lock
+    entity_id: select.back_door_lock_current_lock_mode
+    filters:
+      - to_upper: 
+
+# Settings to control operation of device
+number:
+  id: brightness
+  name: "Brightness"
+  internal: False
+  platform: template
+  max_value: 100
+  min_value: 11
+  step: 1
+  initial_value: 50
+  mode: SLIDER
+  optimistic: True
+  restore_value: True
+  device_class: illuminance
+
+switch:
+  - platform: template
+    id: onoff
+    name: "On"
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: True
+  - platform: template
+    id: flash_enable
+    name: "Flash Enabled"
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: True
+
+# LED Strip WS2812, 7 pixels
+light:
+  - platform: esp32_rmt_led_strip
+    id: status
+    rgb_order: GRB
+    pin: GPIO16
+    num_leds: 7
+    rmt_channel: 0
+    chipset: ws2812
+    disabled_by_default: False    
+    effects: 
+      - addressable_lambda: 
+          name: "LEDStatus"
+          update_interval: 50ms
+          lambda: |-
+
+            static int num_flashes_on_state_change = 10;
+            static int flash_frequency = 10;
+            static int api_stable_after_iterations = 100;
+            static Color White = Color(255, 255, 255);
+
+            static uint pos = 0;
+            static int states[7] = {0,0,0,0,0,0,0};
+            static int prev[7] = {0,0,0,0,0,0,0};
+            static int flash[7] = {0,0,0,0,0,0,0};
+            if (initial_run) pos = 0;
+            static int api_up_count = 0;
+
+
+            // Calculate the brightness we will need to use
+            float brt = id(brightness).state;
+            int setpoint = (int) (255.0 * (brt/100.0));
+
+            // If the API is not up, everything goes blue and we are done
+            if (!global_api_server->is_connected()) {
+              api_up_count = 0;
+              it.all() = Color(0, 0, setpoint);
+              return;
+            }
+
+            // First 500 iterations after API up, we won't flash lights because door
+            // states tend to fluctuate and we don't want to cause unnecessary flashing
+            // api_up_count never goes > api_stable_after_iterations to prevent wrap
+            api_up_count = api_up_count < api_stable_after_iterations ? (api_up_count + 1) : api_up_count;
+
+            // Capture our previous states
+            for (int i=0; i<7; i++) prev[i]=states[i];
+
+            // Establish current states
+            states[0] = id(front_door).state > 0 ? 1 : 0;
+            states[1] = id(back_door).state > 0 ? 1 : ( id(back_door_lock).state == "SECURED" ? 0 : 2 );
+            states[2] = id(pool_door).state > 0 ? 1 : 0;
+            states[3] = id(side_door).state > 0 ? 1 : 0;
+            states[4] = id(gdo_large).state == 0 ? 1 : 0;
+            states[5] = id(gdo_small).state == 0 ? 1 : 0;
+            states[6] = id(gate).state == 0 ? 1 : 0;
+
+            // If we are turned off, everything goes black and we are done
+            if (!id(onoff).state) {
+              it.all() = Color(0, 0, 0);
+              return;
+            }
+
+            // Set flash counts for any entity that changed state on this iteration
+            int flash_enabled = id(flash_enable).state;
+            if (api_up_count >= api_stable_after_iterations && flash_enabled) {
+              for (int i=0; i<7; i++) if (prev[i]!=states[i]) flash[i]=num_flashes_on_state_change;
+            } else {
+              for (int i=0; i<7; i++) if (prev[i]!=states[i]) flash[i]=0;
+            }
+
+            // ESP_LOGD("main", "BRT %f SET %d", brt, setpoint);
+            // ESP_LOGD("main", "States %d %d %d %d %d %d %d", states[0], states[1], states[2], states[3], states[4], states[5], states[6], states[7]);
+            // ESP_LOGD("main", "Prev   %d %d %d %d %d %d %d", prev[0], prev[1], prev[2], prev[3], prev[4], prev[5], prev[6], prev[7]);
+            // ESP_LOGD("main", "Flash  %d %d %d %d %d %d %d", flash[0], flash[1], flash[2], flash[3], flash[4], flash[5], flash[6], flash[7]);
+
+            // Loop through each LED and set as needed
+            for (int i=0; i<7; i++) {
+              if (flash_enabled && flash[i] > 0 && (pos % flash_frequency) == 0) {
+                // The flash counter is >0 and we are on a flash iteration, so full brightness White
+                // flash counter is decremented
+                flash[i]--;
+                it[i] = White;
+              } else {
+                // Otherwise not flashing the light, it should be it's intended color
+                switch(states[i]) {
+                  case 0:
+                    // 0 = Green
+                    it[i] = Color(0, setpoint, 0);
+                    break;
+                  case 1:
+                    // 1 = Red
+                    it[i] = Color(setpoint, 0, 0);
+                    break;
+                  case 2:
+                    // 2 = Yellow
+                    it[i] = Color(setpoint, setpoint, 0);
+                    break;
+                  default:
+                    // And just in case something was screwed up, anything else goes magenta, should never happen
+                    it[i] = Color(setpoint, 0, setpoint);
+                    break;
+                }
+              }
+            }
+
+            // Finally increment our pos counter which is used for tracking white flashes
+            pos++;
+
