@@ -6,12 +6,6 @@ esphome:
   project:
     name: esphome.web
     version: dev
-  on_boot: 
-    then:
-      - light.turn_on:
-          id: status
-          brightness: 100%
-          effect: LEDStatus
 
 esp32:
   board: esp32dev
@@ -20,12 +14,14 @@ esp32:
 
 # Enable logging
 logger:
+  level: ERROR
+  
 
 # Enable Home Assistant API
 api:
-  encryption: 
+  encryption:
     key: ${api_key}
-
+    
 # Allow Over-The-Air updates
 ota:
 - platform: esphome
@@ -52,175 +48,222 @@ dashboard_import:
 
 # Sets up Bluetooth LE (Only on ESP32) to allow the user
 # to provision wifi credentials to the device.
-#esp32_improv:
+# esp32_improv:
 #  authorizer: none
 
 # To have a "next url" for improv serial
 # web_server:
 
-# Sensors to import values from home assistant
+
+globals:
+  - id: sequence
+    type: int
+    initial_value: "0"
+    restore_value: "False"
+
+
 binary_sensor:
-  - platform: homeassistant
-    id: front_door
-    entity_id: binary_sensor.front_door_opening
-  - platform: homeassistant
-    id: back_door
-    entity_id: binary_sensor.back_door_opening
-  - platform: homeassistant
-    id: side_door
-    entity_id: binary_sensor.side_door_opening
-  - platform: homeassistant
-    id: pool_door
-    entity_id: binary_sensor.pool_door_opening
-  - platform: homeassistant
-    id: gdo_small
-    entity_id: binary_sensor.esphome_web_7b1774_gdo_small_state
-  - platform: homeassistant
-    id: gdo_large
-    entity_id: binary_sensor.esphome_web_7b1774_gdo_large_state
-  - platform: homeassistant
-    id: gate
-    entity_id: binary_sensor.gate_web_a8d1a0_closed_endstop
-text_sensor:
-  - platform: homeassistant
-    id: back_door_lock
-    entity_id: select.back_door_lock_current_lock_mode
+  - platform: gpio
+    pin:
+      number: GPIO12
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    name: Blue Button
+    on_press:
+      - delay: 1ms
+    id: btn_blue
     filters:
-      - to_upper: 
+      - delayed_off: 20ms
+  - platform: gpio
+    pin:
+      number: GPIO27
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    name: White Button
+    id: btn_white
+    on_press:
+      - delay: 1ms
+    filters:
+      - delayed_off: 20ms
+  - platform: gpio
+    pin:
+      number: GPIO25
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    name: Red Button
+    id: btn_red
+    on_press:
+      - delay: 1ms
+    filters:
+      - delayed_off: 20ms
+  - platform: gpio
+    pin:
+      number: GPIO32
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    name: Yellow Button
+    id: btn_yellow
+    on_press:
+      - delay: 1ms
+    filters:
+      - delayed_off: 20ms
+  - platform: gpio
+    pin:
+      number: GPIO13
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    name: Green Button
+    id: btn_green
+    on_press:
+      - delay: 1ms
+    filters:
+      - delayed_off: 20ms
 
-# Settings to control operation of device
+# Setting values:
+# 0 / OFF
+# 1 / ON
+# 2 / Slow Flash
+# 3 / Fast Flash
 number:
-  id: brightness
-  name: "Brightness"
-  internal: False
-  platform: template
-  max_value: 100
-  min_value: 11
-  step: 1
-  initial_value: 50
-  mode: SLIDER
-  optimistic: True
-  restore_value: True
-  device_class: illuminance
+  - platform: template
+    id: indicator_blue
+    name: LED Blue
+    max_value: 3
+    min_value: 0
+    optimistic: True
+    step: 1
+    mode: BOX           
+    initial_value: 0
+    restore_value: True
+  - platform: template
+    id: indicator_white
+    name: LED White
+    max_value: 3
+    min_value: 0
+    optimistic: True
+    step: 1
+    mode: BOX           
+    initial_value: 0
+    restore_value: True
+  - platform: template
+    id: indicator_red
+    name: LED Red
+    max_value: 3
+    min_value: 0
+    optimistic: True
+    step: 1
+    mode: BOX           
+    initial_value: 0
+    restore_value: True
+  - platform: template
+    id: indicator_yellow
+    name: LED Yellow
+    max_value: 3
+    min_value: 0
+    optimistic: True
+    step: 1
+    mode: BOX           
+    initial_value: 0
+    restore_value: True
+  - platform: template
+    id: indicator_green
+    name: LED Green
+    max_value: 3
+    min_value: 0
+    optimistic: True
+    step: 1
+    mode: BOX           
+    initial_value: 0
+    restore_value: True
 
+interval:
+  - id: setter
+    interval: 100ms
+    then:    
+      - lambda: |-
+          int seq = id(sequence);
+          if (id(indicator_blue).state == 3) {
+            if (seq % 2 == 0) id(led_blue).turn_on();
+            if (seq % 2 == 1) id(led_blue).turn_off();
+          } else if (id(indicator_blue).state == 2) {
+            if (seq % 4 == 0) id(led_blue).turn_on();
+            if (seq % 4 == 2) id(led_blue).turn_off();
+          } else if (id(indicator_blue).state == 1) {
+            id(led_blue).turn_on();
+          } else {
+            id(led_blue).turn_off();
+          }
+          if (id(indicator_white).state == 3) {
+            if (seq % 2 == 0) id(led_white).turn_on();
+            if (seq % 2 == 1) id(led_white).turn_off();
+          } else if (id(indicator_white).state == 2) {
+            if (seq % 4 == 0) id(led_white).turn_on();
+            if (seq % 4 == 2) id(led_white).turn_off();
+          } else if (id(indicator_white).state == 1) {
+            id(led_white).turn_on();
+          } else {
+            id(led_white).turn_off();
+          }
+          if (id(indicator_red).state == 3) {
+            if (seq % 2 == 0) id(led_red).turn_on();
+            if (seq % 2 == 1) id(led_red).turn_off();
+          } else if (id(indicator_red).state == 2) {
+            if (seq % 4 == 0) id(led_red).turn_on();
+            if (seq % 4 == 2) id(led_red).turn_off();
+          } else if (id(indicator_red).state == 1) {
+            id(led_red).turn_on();
+          } else {
+            id(led_red).turn_off();
+          }
+          if (id(indicator_yellow).state == 3) {
+            if (seq % 2 == 0) id(led_yellow).turn_on();
+            if (seq % 2 == 1) id(led_yellow).turn_off();
+          } else if (id(indicator_yellow).state == 2) {
+            if (seq % 4 == 0) id(led_yellow).turn_on();
+            if (seq % 4 == 2) id(led_yellow).turn_off();
+          } else if (id(indicator_yellow).state == 1) {
+            id(led_yellow).turn_on();
+          } else {
+            id(led_yellow).turn_off();
+          }
+          if (id(indicator_green).state == 3) {
+            if (seq % 2 == 0) id(led_green).turn_on();
+            if (seq % 2 == 1) id(led_green).turn_off();
+          } else if (id(indicator_green).state == 2) {
+            if (seq % 4 == 0) id(led_green).turn_on();
+            if (seq % 4 == 2) id(led_green).turn_off();
+          } else if (id(indicator_green).state == 1) {
+            id(led_green).turn_on();
+          } else {
+            id(led_green).turn_off();
+          }
+      - globals.set:
+          id: sequence
+          value: !lambda return (id(sequence) + 1) % 16;
+          
 switch:
-  - platform: template
-    id: onoff
-    name: "On"
-    restore_mode: RESTORE_DEFAULT_ON
-    optimistic: True
-  - platform: template
-    id: flash_enable
-    name: "Flash Enabled"
-    restore_mode: RESTORE_DEFAULT_ON
-    optimistic: True
-
-# LED Strip WS2812, 7 pixels
-light:
-  - platform: esp32_rmt_led_strip
-    id: status
-    rgb_order: GRB
+  - platform: gpio
+    id: led_blue
+    pin: GPIO15
+  - platform: gpio
+    id: led_white
+    pin: GPIO21
+  - platform: gpio
+    id: led_red
     pin: GPIO16
-    num_leds: 7
-    rmt_channel: 0
-    chipset: ws2812
-    disabled_by_default: False    
-    effects: 
-      - addressable_lambda: 
-          name: "LEDStatus"
-          update_interval: 50ms
-          lambda: |-
-
-            static int num_flashes_on_state_change = 10;
-            static int flash_frequency = 10;
-            static int api_stable_after_iterations = 100;
-            static Color White = Color(255, 255, 255);
-
-            static uint pos = 0;
-            static int states[7] = {0,0,0,0,0,0,0};
-            static int prev[7] = {0,0,0,0,0,0,0};
-            static int flash[7] = {0,0,0,0,0,0,0};
-            if (initial_run) pos = 0;
-            static int api_up_count = 0;
-
-
-            // Calculate the brightness we will need to use
-            float brt = id(brightness).state;
-            int setpoint = (int) (255.0 * (brt/100.0));
-
-            // If the API is not up, everything goes blue and we are done
-            if (!global_api_server->is_connected()) {
-              api_up_count = 0;
-              it.all() = Color(0, 0, setpoint);
-              return;
-            }
-
-            // First 500 iterations after API up, we won't flash lights because door
-            // states tend to fluctuate and we don't want to cause unnecessary flashing
-            // api_up_count never goes > api_stable_after_iterations to prevent wrap
-            api_up_count = api_up_count < api_stable_after_iterations ? (api_up_count + 1) : api_up_count;
-
-            // Capture our previous states
-            for (int i=0; i<7; i++) prev[i]=states[i];
-
-            // Establish current states
-            states[0] = id(front_door).state > 0 ? 1 : 0;
-            states[1] = id(back_door).state > 0 ? 1 : ( id(back_door_lock).state == "SECURED" ? 0 : 2 );
-            states[2] = id(pool_door).state > 0 ? 1 : 0;
-            states[3] = id(side_door).state > 0 ? 1 : 0;
-            states[4] = id(gdo_large).state == 0 ? 1 : 0;
-            states[5] = id(gdo_small).state == 0 ? 1 : 0;
-            states[6] = id(gate).state == 0 ? 1 : 0;
-
-            // If we are turned off, everything goes black and we are done
-            if (!id(onoff).state) {
-              it.all() = Color(0, 0, 0);
-              return;
-            }
-
-            // Set flash counts for any entity that changed state on this iteration
-            int flash_enabled = id(flash_enable).state;
-            if (api_up_count >= api_stable_after_iterations && flash_enabled) {
-              for (int i=0; i<7; i++) if (prev[i]!=states[i]) flash[i]=num_flashes_on_state_change;
-            } else {
-              for (int i=0; i<7; i++) if (prev[i]!=states[i]) flash[i]=0;
-            }
-
-            // ESP_LOGD("main", "BRT %f SET %d", brt, setpoint);
-            // ESP_LOGD("main", "States %d %d %d %d %d %d %d", states[0], states[1], states[2], states[3], states[4], states[5], states[6], states[7]);
-            // ESP_LOGD("main", "Prev   %d %d %d %d %d %d %d", prev[0], prev[1], prev[2], prev[3], prev[4], prev[5], prev[6], prev[7]);
-            // ESP_LOGD("main", "Flash  %d %d %d %d %d %d %d", flash[0], flash[1], flash[2], flash[3], flash[4], flash[5], flash[6], flash[7]);
-
-            // Loop through each LED and set as needed
-            for (int i=0; i<7; i++) {
-              if (flash_enabled && flash[i] > 0 && (pos % flash_frequency) == 0) {
-                // The flash counter is >0 and we are on a flash iteration, so full brightness White
-                // flash counter is decremented
-                flash[i]--;
-                it[i] = White;
-              } else {
-                // Otherwise not flashing the light, it should be it's intended color
-                switch(states[i]) {
-                  case 0:
-                    // 0 = Green
-                    it[i] = Color(0, setpoint, 0);
-                    break;
-                  case 1:
-                    // 1 = Red
-                    it[i] = Color(setpoint, 0, 0);
-                    break;
-                  case 2:
-                    // 2 = Yellow
-                    it[i] = Color(setpoint, setpoint, 0);
-                    break;
-                  default:
-                    // And just in case something was screwed up, anything else goes magenta, should never happen
-                    it[i] = Color(setpoint, 0, setpoint);
-                    break;
-                }
-              }
-            }
-
-            // Finally increment our pos counter which is used for tracking white flashes
-            pos++;
-
+  - platform: gpio
+    id: led_yellow
+    pin: GPIO5
+  - platform: gpio
+    id: led_green
+    pin: GPIO19
