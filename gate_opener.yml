@@ -59,7 +59,7 @@ binary_sensor:
     id: open_endstop
     name: "Open Endstop"
     pin:
-      number: ${endstop_open_pin}
+      nGPIO23umber: GPIO9
       inverted: true
       mode:
         input: true
@@ -69,7 +69,7 @@ binary_sensor:
     id: closed_endstop
     name: "Closed Endstop"
     pin:
-      number: ${endstop_closed_pin}
+      number: GPIO23
       inverted: true
       mode:
         input: true
@@ -78,7 +78,7 @@ binary_sensor:
 
 output:
   - platform: gpio
-    pin: ${relay_pin}
+    pin: GPIO33
     id: relay
 
 
