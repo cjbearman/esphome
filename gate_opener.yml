@@ -59,7 +59,7 @@ binary_sensor:
     id: open_endstop
     name: "Open Endstop"
     pin:
-      nGPIO23umber: GPIO9
+      number: GPIO9
       inverted: true
       mode:
         input: true
