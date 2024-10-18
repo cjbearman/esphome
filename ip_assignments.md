@@ -13,6 +13,8 @@ Static Range : 192.168.21.1 -> 192.168.21.254
 | 192.168.21.1   | Dev Board |
 | 192.168.21.2   | Control Panel (Office) |
 | 192.168.21.3   | Control Panel (Bedroom) |
+| 192.168.21.5   | Gate Opener |
+| 192.168.21.6   | Garage Door Opener |
 | 192.168.21.10  | Door Status Panel (Bedroom) |
 | 192.168.21.11  | Door Status Panel (Living Room) |
 | 192.168.21.12  | Door Status Panel (Office) |

@@ -16,7 +16,6 @@ esp32:
 logger:
   level: INFO
   
-
 # Enable Home Assistant API
 api:
   encryption:
@@ -30,7 +29,6 @@ ota:
 improv_serial:
 
 wifi:
-  # Set up a wifi access point
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   manual_ip:

@@ -1,0 +1,198 @@
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2024.6.0
+  name_add_mac_suffix: false
+  platformio_options:
+    board_build.flash_mode: dio
+  project:
+    name: esphome.web
+    version: dev
+
+  on_boot:
+    then:
+      - if:
+          condition:
+            - binary_sensor.is_off: "gdo_small_state"
+          then:
+            - output.turn_on: "gdo_led_small_open"
+            - output.turn_off: "gdo_led_small_closed"
+          else:
+            - output.turn_on: "gdo_led_small_closed"
+            - output.turn_off: "gdo_led_small_open"
+      - if:
+          condition:
+            - binary_sensor.is_off: "gdo_large_state"
+          then:
+            - output.turn_on: "gdo_led_large_open"
+            - output.turn_off: "gdo_led_large_closed"
+          else:
+            - output.turn_on: "gdo_led_large_closed"
+            - output.turn_off: "gdo_led_large_open"
+
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption: 
+    key: ${api_key}
+
+# Allow Over-The-Air updates
+ota:
+- platform: esphome
+
+# Allow provisioning Wi-Fi via serial
+improv_serial:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  manual_ip:
+    static_ip: ${ip_address}
+    gateway: ${gateway}
+    subnet: ${subnet}
+
+dashboard_import:
+  package_import_url: github://esphome/firmware/esphome-web/esp32s3.yaml@main
+  import_full_config: true
+
+# Reed switch sensors
+binary_sensor:
+  - platform: gpio
+    id: gdo_small_state
+    name: "GDO Small State"
+    pin:
+      number: GPIO47
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    on_state:
+      then:
+        - lambda: |-
+            if (id(gdo_small_state).state) {
+              id(gdo_led_small_open).turn_off();
+              id(gdo_led_small_closed).turn_on();
+            } else {
+              id(gdo_led_small_open).turn_on();
+              id(gdo_led_small_closed).turn_off();
+            }
+      
+  - platform: gpio
+    id: gdo_large_state
+    name: "GDO Large State"
+    pin:
+      number: GPIO48
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    on_state:
+      then:
+        - lambda: |-
+            if (id(gdo_large_state).state) {
+              id(gdo_led_large_open).turn_off();
+              id(gdo_led_large_closed).turn_on();
+            } else {
+              id(gdo_led_large_open).turn_on();
+              id(gdo_led_large_closed).turn_off();
+            }
+
+# LEDs
+output:
+  - platform: gpio
+    pin: GPIO7
+    id: gdo_led_small_relay
+  - platform: gpio
+    pin: GPIO9
+    id: gdo_led_small_open
+  - platform: gpio
+    pin: GPIO17
+    id: gdo_led_small_closed
+  - platform: gpio
+    pin: GPIO12
+    id: gdo_led_large_relay
+  - platform: gpio
+    pin: GPIO4
+    id: gdo_led_large_open
+  - platform: gpio
+    pin: GPIO2
+    id: gdo_led_large_closed
+  - platform: gpio
+    pin: GPIO14
+    id: gdo_large_operate
+  - platform: gpio
+    pin: GPIO5
+    id: gdo_small_operate
+
+  
+# Covers are the garage door components for HA
+cover:
+  - platform: template
+    name: "Small Garage Door"
+    id: "gdo_small"
+    lambda: |-
+      if (id(gdo_small_state).state) {
+        return COVER_CLOSED;
+      } else {
+        return COVER_OPEN;
+      }
+    open_action:
+      - output.turn_on: gdo_small_operate
+      - output.turn_on: gdo_led_small_relay
+      - delay: 0.1s
+      - output.turn_off: gdo_small_operate
+      - delay: 0.9s
+      - output.turn_off: gdo_led_small_relay
+    close_action:
+      - output.turn_on: gdo_small_operate
+      - output.turn_on: gdo_led_small_relay
+      - delay: 0.1s
+      - output.turn_off: gdo_small_operate
+      - delay: 0.9s
+      - output.turn_off: gdo_led_small_relay
+    stop_action:
+      - output.turn_on: gdo_small_operate
+      - output.turn_on: gdo_led_small_relay
+      - delay: 0.1s
+      - output.turn_off: gdo_small_operate
+      - delay: 0.9s
+      - output.turn_off: gdo_led_small_relay
+  - platform: template
+    name: "Large Garage Door"
+    id: "gdo_large"
+    lambda: |-
+      if (id(gdo_large_state).state) {
+        return COVER_CLOSED;
+      } else {
+        return COVER_OPEN;
+      }
+    open_action:
+      - output.turn_on: gdo_large_operate
+      - output.turn_on: gdo_led_large_relay
+      - delay: 0.1s
+      - output.turn_off: gdo_large_operate
+      - delay: 0.9s
+      - output.turn_off: gdo_led_large_relay
+    close_action:
+      - output.turn_on: gdo_large_operate
+      - output.turn_on: gdo_led_large_relay
+      - delay: 0.1s
+      - output.turn_off: gdo_large_operate
+      - delay: 0.9s
+      - output.turn_off: gdo_led_large_relay
+    stop_action:
+      - output.turn_on: gdo_large_operate
+      - output.turn_on: gdo_led_large_relay
+      - delay: 0.1s
+      - output.turn_off: gdo_large_operate
+      - delay: 0.9s
+      - output.turn_off: gdo_led_large_relay
+
