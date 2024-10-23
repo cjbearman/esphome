@@ -8,7 +8,7 @@ static uint32_t COL_RED = 0xFF0000;
 uint32_t indoorColor(float temp) {
         return temp <= 68 ? COL_DARK_BLUE :
                 temp <= 70 ? COL_LIGHT_BLUE :
-                temp <= 73 ? COL_GREEN :
+                temp <= 74 ? COL_GREEN :
                 temp <= 75 ? COL_YELLOW :
                 temp <= 78 ? COL_ORANGE :
                 COL_RED;

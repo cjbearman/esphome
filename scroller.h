@@ -19,7 +19,7 @@ Pauses wil be added at start and end of scroll
 
 */
 
-void scroller(const char *msg, char *out, int size, int *pos, int *delay) {
+void scroller(const char *msg, char *out, int size, int *pos, int *delay, int delay_cycles) {
     
     if (*delay > 0) {
         (*delay)--;
@@ -30,14 +30,14 @@ void scroller(const char *msg, char *out, int size, int *pos, int *delay) {
     int mc = size -1;
     if (l - *pos < mc) {
         *pos =0;
-        *delay = 5;
+        *delay = delay_cycles;
     }
 
     snprintf(out, size, "%s", &(msg[*pos]));
     (*pos)++;
 
     if (l - *pos < mc) {
-        *delay = 5;
+        *delay = delay_cycles;
     }
 
     
