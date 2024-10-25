@@ -124,7 +124,7 @@ display:
       static int pos = 0;                             // Scroller position
       static int delay = 0;                           // Scroller current delay
       static char buf[26];                            // Buffer for current visible scroller text
-      static const char *VERSION = "1.0";             // Clock version
+      static const char *VERSION = "1.1";             // Clock version
       static Color cDate = Color(0xD5C67A);           // Color for date element
       static Color cClock = Color(0x06A77D);          // Color for clock element
       static Color cMsg = Color(0xFFFFFF);            // Color for scrolling message
@@ -144,8 +144,10 @@ display:
       static char *lastMessage = NULL;                // Copy of the message we are currently displaying (dynamicly allocated)
       static int curMode = -1;                        // Display mode, 0=Init, 1=Day, 2=Night
       static int delayCycles = 20;                    // Number of update cycles to delay scroller at start and end
-      static float last_brightness = -1;               // Last set brightness
-      float target_brightness = -1;             // Targetted brightness
+      static float last_brightness = -1;              // Last set brightness
+      float target_brightness = -1;                   // Targetted brightness
+      static bool last_is_connected = false;          // Whether we were connected on last run
+      bool is_connected;                              // Whether we are connected now
 
       struct tm c_tm = id(esptime).now().to_c_tm();   // Get current time
 
@@ -188,14 +190,16 @@ display:
         strftime(currentTime, 65, tf, &c_tm);     
         currentIndoorTemp = id(indoor_temp).state;
         currentOutdoorTemp = id(outdoor_temp).state;
-        if (strcmp(currentTime, lastTime) || currentIndoorTemp != lastIndoorTemp || currentOutdoorTemp != lastOutdoorTemp || curMode != 2) {
-          // Full update only if time (or date by implication), or temps have changed, or mode switch
+        is_connected = id(pstatus).state;
+        if (strcmp(currentTime, lastTime) || currentIndoorTemp != lastIndoorTemp || currentOutdoorTemp != lastOutdoorTemp || curMode != 2 || last_is_connected != is_connected) {
+          // Full update only if time (or date by implication), or temps have changed, or mode switch, or connectivity change
           // This is an expensive operation, so we restrict it to when absolutely necessary
           // so that we can have fast scrolling at other times
           ESP_LOGD("main", "Full update, day mode");
           strcpy(lastTime, currentTime);
           lastOutdoorTemp = currentOutdoorTemp;
           lastIndoorTemp = currentIndoorTemp;
+          last_is_connected = is_connected;
           curMode = 2;
           it.clear();
           it.printf(160, 80, id(large), cClock, COLOR_OFF, display::TextAlign::CENTER, "%s", currentTime);
@@ -205,6 +209,11 @@ display:
           it.printf(0, 240, id(medium), Color(outdoorColor(currentOutdoorTemp)), COLOR_OFF, display::TextAlign::BOTTOM_LEFT, "%.1f°", currentOutdoorTemp);
           it.printf(220, 200, id(small), cTemp, COLOR_OFF, display::TextAlign::BOTTOM_LEFT, "Indoor");
           it.printf(220, 240, id(medium), Color(indoorColor(currentIndoorTemp)), COLOR_OFF, display::TextAlign::BOTTOM_LEFT, "%.1f°", currentIndoorTemp);
+
+          if (!is_connected) {
+            it.filled_rectangle(70, 148, 180, 25, Color(0xFF0000));
+            it.printf(160, 150, id(small), Color(0xFFFFFF), Color(0xFF0000), display::TextAlign::TOP_CENTER, "No Connection");
+          }
         }
 
         // Scroller gets updated on every interval      
@@ -234,9 +243,9 @@ display:
 
         scroller(lastMessage, buf, sizeof(buf), &pos, &delay, delayCycles);
         // Blank out the background behind the scroller
-        it.filled_rectangle(0, 123, 320, 26, cBackground);
+        it.filled_rectangle(0, 118, 320, 26, cBackground);
         // And redraw
-        it.printf(0, 125, id(small), cMsg, COLOR_OFF, display::TextAlign::TOP_LEFT, "%s", buf);
+        it.printf(0, 120, id(small), cMsg, COLOR_OFF, display::TextAlign::TOP_LEFT, "%s", buf);
       }
 
       if (target_brightness != last_brightness) {
@@ -279,3 +288,8 @@ time:
       then:
         switch.turn_on: time_valid
     timezone: "America/Chicago"
+
+binary_sensor:
+  - platform: status
+    id: pstatus
+
