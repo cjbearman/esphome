@@ -144,15 +144,16 @@ display:
       static char *lastMessage = NULL;                // Copy of the message we are currently displaying (dynamicly allocated)
       static int curMode = -1;                        // Display mode, 0=Init, 1=Day, 2=Night
       static int delayCycles = 20;                    // Number of update cycles to delay scroller at start and end
+      static float last_brightness = -1;               // Last set brightness
+      float target_brightness = -1;             // Targetted brightness
 
       struct tm c_tm = id(esptime).now().to_c_tm();   // Get current time
 
+      // Assume daytime unless otherwise adjusted
+      target_brightness = id(daytime_brightness).state;
+
       if (!id(time_valid).state) {
         // INIT mode, because we don't have a valid time yet
-        if (curMode == 1) {
-          // Currently in night mode, backlight adjustment required
-         id(backlight).turn_on().set_brightness(id(daytime_brightness).state / 100).perform();
-        }
         if (curMode != 0) {
           ESP_LOGD("main", "Full update, init mode");
           it.clear();
@@ -160,12 +161,9 @@ display:
           it.printf(160, 140, id(medium), cDate, COLOR_OFF, display::TextAlign::CENTER, "Connecting...");
           curMode = 0;
         }
-        return;
-      }
-
-
-      if (id(night_mode).state) {        
+      } else if (id(night_mode).state) {        
         // NIGHT mode
+        target_brightness = id(nighttime_brightness).state;
         if (curMode != 1) {
           // Not in night mode, brightness adjustment required
          id(backlight).turn_on().set_brightness(id(nighttime_brightness).state / 100).perform();
@@ -240,6 +238,11 @@ display:
         // And redraw
         it.printf(0, 125, id(small), cMsg, COLOR_OFF, display::TextAlign::TOP_LEFT, "%s", buf);
       }
+
+      if (target_brightness != last_brightness) {
+        id(backlight).turn_on().set_brightness(target_brightness / 100).perform();
+        last_brightness = target_brightness;
+      }
       
 switch:
   - platform: template
@@ -276,4 +279,3 @@ time:
       then:
         switch.turn_on: time_valid
     timezone: "America/Chicago"
-
