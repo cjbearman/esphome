@@ -1,0 +1,363 @@
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2024.6.0
+  name_add_mac_suffix: false
+  includes:
+    - scroller.h
+    - colorscale.h
+  project:
+    name: esphome.web
+    version: dev
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+  level: ERROR
+
+# Enable Home Assistant API
+api:
+  encryption: 
+    key: ${api_key}
+
+# Allow Over-The-Air updates
+ota:
+- platform: esphome
+
+# Allow provisioning Wi-Fi via serial
+improv_serial:
+
+#web_server:
+  
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  manual_ip:
+    static_ip: ${static_ip}
+    gateway: ${gateway}
+    subnet: ${subnet}
+
+# In combination with the `ap` this allows the user
+# to provision wifi credentials to the device via WiFi AP.
+# captive_portal:
+
+dashboard_import:
+  package_import_url: github://esphome/example-configs/esphome-web/esp32.yaml@main
+  import_full_config: true
+
+# Sets up Bluetooth LE (Only on ESP32) to allow the user
+# to provision wifi credentials to the device.
+# esp32_improv:
+#   authorizer: none
+
+# To have a "next url" for improv serial
+# web_server:
+
+font:
+  - file: "gfonts://Lekton"
+    id: jumbo
+    size: 128
+  - file: "gfonts://Lekton"
+    id: large
+    size: 64
+  - file: "gfonts://Lekton"
+    id: medium
+    size: 40
+  - file: "gfonts://Lekton"
+    id: small
+    size: 24  
+
+number:
+  - platform: homeassistant
+    id: outdoor_temp
+    entity_id: ${outdoor_temp_sensor}
+  - platform: homeassistant
+    id: indoor_temp
+    entity_id: ${indoor_temp_sensor}
+  - platform: template
+    id: daytime_brightness
+    name: Daytime Brightness
+    min_value: 0
+    max_value: 100
+    step: 1
+    optimistic: true
+    initial_value: 100
+    restore_value: True
+  - platform: template
+    id: nighttime_brightness
+    name: Nighttime Brightness
+    min_value: 0
+    max_value: 100
+    step: 1
+    optimistic: true
+    initial_value: 20
+    restore_value: True
+
+spi:
+  - interface: hardware
+    mosi_pin: GPIO23
+    miso_pin: GPIO19
+    clk_pin: GPIO18
+
+display:
+  - platform: ili9xxx
+    model: ${display_driver}
+    cs_pin: GPIO33
+    dc_pin: GPIO25
+    reset_pin: GPIO26
+    invert_colors: true
+    dimensions:
+      height: 320
+      width: 240
+    rotation: 90
+    update_interval: 100ms
+    data_rate: ${spi_speed}
+    auto_clear_enabled: False
+
+    lambda: |-
+      // This update is written to only update the full display when something other than the scrolling message
+      // changes. Otherwise it just updates the scrolling message segment
+      // If we updated everything on every cycle, that's a 100ms or so update time and should be avoided
+
+      static int pos = 0;                             // Scroller position
+      static int delay = 0;                           // Scroller current delay
+      static char buf[26];                            // Buffer for current visible scroller text
+      static const char *VERSION = "2.0";             // Clock version
+      static Color cDate = Color(0xD5C67A);           // Color for date element
+      static Color cClock = Color(0x06A77D);          // Color for clock element
+      static Color cMsg = Color(0xFFFFFF);            // Color for scrolling message
+      static Color cTemp = Color(0x888888);           // Color for temperature labels
+      static Color cNight = Color(0xFF0000);          // Color for night mode
+      static Color cBackground = Color(0x000000);     // Background color, i.e. black
+      static float lastIndoorTemp=-9999;              // Current and prior temperature values
+      static float currentIndoorTemp; 
+      static float lastOutdoorTemp=-9999;
+      static float currentOutdoorTemp;
+      static char lastTime[12];                       // Last time displayed
+      static char currentTime[12];                    // Current time
+      char currentDate[32];                           // Current date
+      const char *tf = "%I:%M %p";                    // Time format, day mode
+      const char *tfn = "%I:%M";                      // Time format, night mode
+      const char *df = "%a %d %b %Y";                 // Date format
+      static char *lastMessage = NULL;                // Copy of the message we are currently displaying (dynamicly allocated)
+      static int curMode = -1;                        // Display mode, 0=Init, 1=Day, 2=Night
+      static int delayCycles = 20;                    // Number of update cycles to delay scroller at start and end
+      static float last_brightness = -1;              // Last set brightness
+      float target_brightness = -1;                   // Targetted brightness
+      static bool last_is_connected = false;          // Whether we were connected on last run
+      bool is_connected;                              // Whether we are connected now
+
+      struct tm c_tm = id(esptime).now().to_c_tm();   // Get current time
+
+      // Assume daytime unless otherwise adjusted
+      target_brightness = id(daytime_brightness).state;
+
+      if (!id(time_valid).state) {
+        // INIT mode, because we don't have a valid time yet
+        if (curMode != 0) {
+          ESP_LOGD("main", "Full update, init mode");
+          it.clear();
+          it.printf(160, 0, id(small), cClock, COLOR_OFF, display::TextAlign::TOP_CENTER, "HA ESP Clock V%s", VERSION);
+          it.printf(160, 140, id(medium), cDate, COLOR_OFF, display::TextAlign::CENTER, "Connecting...");
+          curMode = 0;
+        }
+      } else if (id(night_mode).state) {        
+        // NIGHT mode
+        target_brightness = id(nighttime_brightness).state;
+        if (curMode != 1) {
+          // Not in night mode, brightness adjustment required
+         id(backlight).turn_on().set_brightness(id(nighttime_brightness).state / 100).perform();
+        }
+
+        strftime(currentTime, 65, tfn, &c_tm);
+        if (strcmp(currentTime, lastTime) || curMode != 1) {
+          ESP_LOGD("main", "Full update, night mode");
+          it.clear();
+          it.printf(160, 120, id(jumbo), cNight, COLOR_OFF, display::TextAlign::CENTER, "%s", currentTime);
+          strcpy(lastTime, currentTime);
+          curMode = 1;
+        }
+        
+      } else {
+        if (curMode == 1) {
+          // Currently in night mode, backlight adjustment required
+         id(backlight).turn_on().set_brightness(id(daytime_brightness).state / 100).perform();
+        }
+
+        // Establish current time and temperature values
+        strftime(currentTime, 65, tf, &c_tm);     
+        currentIndoorTemp = id(indoor_temp).state;
+        currentOutdoorTemp = id(outdoor_temp).state;
+        is_connected = id(pstatus).state;
+        if (strcmp(currentTime, lastTime) || currentIndoorTemp != lastIndoorTemp || currentOutdoorTemp != lastOutdoorTemp || curMode != 2 || last_is_connected != is_connected) {
+          // Full update only if time (or date by implication), or temps have changed, or mode switch, or connectivity change
+          // This is an expensive operation, so we restrict it to when absolutely necessary
+          // so that we can have fast scrolling at other times
+          ESP_LOGD("main", "Full update, day mode");
+          strcpy(lastTime, currentTime);
+          lastOutdoorTemp = currentOutdoorTemp;
+          lastIndoorTemp = currentIndoorTemp;
+          last_is_connected = is_connected;
+          curMode = 2;
+          it.clear();
+          it.printf(160, 80, id(large), cClock, COLOR_OFF, display::TextAlign::CENTER, "%s", currentTime);
+          strftime(currentDate, 65, df, &c_tm);
+          it.printf(160, 0, id(medium), cDate, COLOR_OFF, display::TextAlign::TOP_CENTER, "%s", currentDate);
+          it.printf(0, 200, id(small), cTemp, COLOR_OFF, display::TextAlign::BOTTOM_LEFT, "Outdoor");
+          it.printf(0, 240, id(medium), Color(outdoorColor(currentOutdoorTemp)), COLOR_OFF, display::TextAlign::BOTTOM_LEFT, "%.1f°", currentOutdoorTemp);
+          it.printf(220, 200, id(small), cTemp, COLOR_OFF, display::TextAlign::BOTTOM_LEFT, "Indoor");
+          it.printf(220, 240, id(medium), Color(indoorColor(currentIndoorTemp)), COLOR_OFF, display::TextAlign::BOTTOM_LEFT, "%.1f°", currentIndoorTemp);
+
+          if (!is_connected) {
+            it.filled_rectangle(70, 148, 180, 25, Color(0xFF0000));
+            it.printf(160, 150, id(small), Color(0xFFFFFF), Color(0xFF0000), display::TextAlign::TOP_CENTER, "No Connection");
+          }
+        }
+
+        // Scroller gets updated on every interval      
+        const char *incoming_msg = id(scroll_text_from_ha).state.c_str();
+
+        if (lastMessage == NULL || strcmp(lastMessage, incoming_msg)) {
+          // We haven't captured a last message, or the last message is not the same as the one provided by sensor
+          if (lastMessage != NULL) {
+            // free our last message buffer if set
+            ESP_LOGD("main", "Free message buffer");
+            free(lastMessage);
+          }
+          // allocate a new buffer
+          int newLen = strlen(incoming_msg) + 1;
+          lastMessage = (char *) malloc(newLen);
+          ESP_LOGD("main", "Allocate message buffer : %d chars", newLen);
+          // copy message
+          strcpy(lastMessage, incoming_msg);
+          ESP_LOGD("main", "New Message: %s", incoming_msg);
+          // reset scroller position
+          pos = 0;
+          delay = 0;
+          scroller(lastMessage, buf, sizeof(buf), &pos, &delay, delayCycles);
+          delay = delayCycles;
+
+        }
+
+        scroller(lastMessage, buf, sizeof(buf), &pos, &delay, delayCycles);
+        // Blank out the background behind the scroller
+        it.filled_rectangle(0, 118, 320, 26, cBackground);
+        // And redraw
+        it.printf(0, 120, id(small), cMsg, COLOR_OFF, display::TextAlign::TOP_LEFT, "%s", buf);
+      }
+
+      if (target_brightness != last_brightness) {
+        id(backlight).turn_on().set_brightness(target_brightness / 100).perform();
+        last_brightness = target_brightness;
+      }
+      
+switch:
+  - platform: template
+    id: night_mode
+    name: Night mode
+    optimistic: True
+    restore_mode: RESTORE_DEFAULT_OFF
+  - platform: template
+    id: time_valid
+    optimistic: True
+    restore_mode: ALWAYS_OFF
+  - platform: template
+    id: buzzer
+    name: Buzzer
+    assumed_state: False
+    optimistic: True
+    restore_mode: ALWAYS_OFF
+  - platform: template
+    id: led
+    name: LED
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: True
+  - platform: template
+    id: led_tie
+    name: LED Flash With Buzzer
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: True
+  
+interval:
+  - interval: 250ms
+    then:
+      - lambda: |-
+          static bool state = false;
+          bool led_tie_state = id(led_tie).state;
+
+          if (id(buzzer).state) {
+            // Buzzer is sounding
+            state = !state;
+            if (state) {
+              id(buzzer_out).turn_on();
+              if (led_tie_state) {
+                id(led_out).turn_on();
+              }    
+            } else {
+              id(buzzer_out).turn_off();
+              if (led_tie_state) {
+                id(led_out).turn_off();
+              }
+            }
+          } else {
+            state = false;
+            id(buzzer_out).turn_off();
+            if (id(led).state) {
+              id(led_out).turn_on();
+            } else {
+              id(led_out).turn_off();
+            }
+          }
+
+
+text_sensor:
+  - platform: homeassistant
+    id: scroll_text_from_ha
+    entity_id: ${scrolling_msg_sensor}
+
+output:
+  - platform: ledc
+    pin: GPIO32
+    id: backlight_pwm
+  - platform: gpio
+    id: buzzer_out
+    pin:
+      number: GPIO13
+  - platform: gpio
+    id: led_out
+    pin:
+      number: GPIO27
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    id: backlight
+    restore_mode: ALWAYS_ON
+    default_transition_length: 0s
+
+time:
+  - platform: homeassistant
+    id: esptime
+    on_time_sync: 
+      then:
+        switch.turn_on: time_valid
+    timezone: "America/Chicago"
+
+binary_sensor:
+  - platform: status
+    id: pstatus
+  - platform: gpio
+    id: button
+    name: Button
+    pin: 
+      mode: 
+        input: True
+        pullup: True
+      number: GPIO04
+      inverted: True
+
