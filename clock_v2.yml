@@ -17,7 +17,7 @@ esp32:
 
 # Enable logging
 logger:
-  level: ERROR
+  level: DEBUG
 
 # Enable Home Assistant API
 api:
@@ -29,10 +29,7 @@ ota:
 - platform: esphome
 
 # Allow provisioning Wi-Fi via serial
-improv_serial:
-
-#web_server:
-  
+improv_serial:  
 
 wifi:
   ssid: !secret wifi_ssid
@@ -97,6 +94,15 @@ number:
     optimistic: true
     initial_value: 20
     restore_value: True
+  - platform: template
+    id: alarm_seconds
+    name: Alarm Duration Seconds
+    min_value: 0
+    max_value: 300
+    step: 1
+    optimistic: True
+    initial_value: 60
+    restore_value: True
 
 spi:
   - interface: hardware
@@ -134,6 +140,8 @@ display:
       static Color cTemp = Color(0x888888);           // Color for temperature labels
       static Color cNight = Color(0xFF0000);          // Color for night mode
       static Color cBackground = Color(0x000000);     // Background color, i.e. black
+      static Color cAlarmOn = Color(0x00FF00);        // Alarm on color
+      static Color cAlarmOff = Color(0x666666);       // Alarm off color
       static float lastIndoorTemp=-9999;              // Current and prior temperature values
       static float currentIndoorTemp; 
       static float lastOutdoorTemp=-9999;
@@ -151,16 +159,62 @@ display:
       float target_brightness = -1;                   // Targetted brightness
       static bool last_is_connected = false;          // Whether we were connected on last run
       bool is_connected;                              // Whether we are connected now
-
+      static char last_alarm[12];                     // Last alarm text shown
+      char alarm[12];                                 // Alarm to be shown
+      int alarm_trigger_hour;                         // Hour to trigger alarm (24hr clock) or -1
+      int alarm_trigger_minute;                       // Minute to trigger alarm or -1
+      static bool alarm_triggered;                    // Alarm was triggered
+      bool alarm_enabled = id(alarm_on).state;        // Whether the alarm is currently enabled
+      static bool last_alarm_enabled;                 // The last state of alarm enabled
+  
       struct tm c_tm = id(esptime).now().to_c_tm();   // Get current time
+
+      // Parse alarm description and evaluate alarm status based on set time
+      const char *alarm_set = id(alarm_time).state.c_str();
+      strcpy(alarm, "");
+      if (strlen(alarm_set) == 5) {
+        if (sscanf(alarm_set, "%2d:%2d", &alarm_trigger_hour, &alarm_trigger_minute) == 2) {
+          if (alarm_trigger_hour >=0 && alarm_trigger_hour <= 23 && alarm_trigger_minute >=0 && alarm_trigger_minute <=59) {
+            sprintf(alarm, "%02d:%02d %s",
+              alarm_trigger_hour > 12 ? (alarm_trigger_hour - 12) : alarm_trigger_hour,
+              alarm_trigger_minute,
+              alarm_trigger_hour >= 12 ? "PM": "AM"
+            );
+          }
+        }
+      }
+
+      // If the alarm string is not a valid HH:MM (24hr), alarm is off by default
+      if (strlen(alarm) == 0) {
+        // Alarm cannot be enabled, if not set properly
+        alarm_enabled = false;
+        strcpy(alarm, "--:--");
+      }
+
+      // Evaluate if we are at alarm trigger time
+      if (alarm_trigger_hour == c_tm.tm_hour && alarm_trigger_minute == c_tm.tm_min) {
+        // We are, if alarm is enabled and we haven't triggered it, do so now
+        if (alarm_enabled && !alarm_triggered) {
+          alarm_triggered = true;
+          id(buzzer).turn_on();
+          if (id(alarm_triggers_day).state) {
+            id(night_mode).turn_off();
+            ESP_LOGI("main", "Alarm sounding");
+          }
+        }
+      } else {
+        // Not at alarm trigger time, reset trigger state
+        alarm_triggered = false;
+      }
 
       // Assume daytime unless otherwise adjusted
       target_brightness = id(daytime_brightness).state;
 
+    
       if (!id(time_valid).state) {
         // INIT mode, because we don't have a valid time yet
         if (curMode != 0) {
-          ESP_LOGD("main", "Full update, init mode");
+          ESP_LOGI("main", "Full update, init mode");
           it.clear();
           it.printf(160, 0, id(small), cClock, COLOR_OFF, display::TextAlign::TOP_CENTER, "HA ESP Clock V%s", VERSION);
           it.printf(160, 140, id(medium), cDate, COLOR_OFF, display::TextAlign::CENTER, "Connecting...");
@@ -175,12 +229,17 @@ display:
         }
 
         strftime(currentTime, 65, tfn, &c_tm);
-        if (strcmp(currentTime, lastTime) || curMode != 1) {
-          ESP_LOGD("main", "Full update, night mode");
+        if (strcmp(currentTime, lastTime) || curMode != 1 || strcmp(alarm, last_alarm) || alarm_enabled != last_alarm_enabled) {
+          ESP_LOGI("main", "Full update, night mode");
+          strcpy(last_alarm, alarm);
+          last_alarm_enabled=alarm_enabled;
           it.clear();
-          it.printf(160, 120, id(jumbo), cNight, COLOR_OFF, display::TextAlign::CENTER, "%s", currentTime);
+          it.printf(160, 100, id(jumbo), cNight, COLOR_OFF, display::TextAlign::CENTER, "%s", currentTime);
           strcpy(lastTime, currentTime);
           curMode = 1;
+          if (alarm_enabled) {
+            it.printf(160, 180, id(medium), cNight, COLOR_OFF, display::TextAlign::TOP_CENTER, "%s", alarm);
+          }
         }
         
       } else {
@@ -194,15 +253,17 @@ display:
         currentIndoorTemp = id(indoor_temp).state;
         currentOutdoorTemp = id(outdoor_temp).state;
         is_connected = id(pstatus).state;
-        if (strcmp(currentTime, lastTime) || currentIndoorTemp != lastIndoorTemp || currentOutdoorTemp != lastOutdoorTemp || curMode != 2 || last_is_connected != is_connected) {
+        if (strcmp(currentTime, lastTime) || currentIndoorTemp != lastIndoorTemp || currentOutdoorTemp != lastOutdoorTemp || curMode != 2 || last_is_connected != is_connected || strcmp(alarm, last_alarm) || alarm_enabled != last_alarm_enabled) {
           // Full update only if time (or date by implication), or temps have changed, or mode switch, or connectivity change
           // This is an expensive operation, so we restrict it to when absolutely necessary
           // so that we can have fast scrolling at other times
-          ESP_LOGD("main", "Full update, day mode");
+          ESP_LOGI("main", "Full update, day mode");
           strcpy(lastTime, currentTime);
           lastOutdoorTemp = currentOutdoorTemp;
           lastIndoorTemp = currentIndoorTemp;
           last_is_connected = is_connected;
+          strcpy(last_alarm, alarm);
+          last_alarm_enabled = alarm_enabled;
           curMode = 2;
           it.clear();
           it.printf(160, 80, id(large), cClock, COLOR_OFF, display::TextAlign::CENTER, "%s", currentTime);
@@ -212,6 +273,7 @@ display:
           it.printf(0, 240, id(medium), Color(outdoorColor(currentOutdoorTemp)), COLOR_OFF, display::TextAlign::BOTTOM_LEFT, "%.1f°", currentOutdoorTemp);
           it.printf(220, 200, id(small), cTemp, COLOR_OFF, display::TextAlign::BOTTOM_LEFT, "Indoor");
           it.printf(220, 240, id(medium), Color(indoorColor(currentIndoorTemp)), COLOR_OFF, display::TextAlign::BOTTOM_LEFT, "%.1f°", currentIndoorTemp);
+          it.printf(160, 210, id(small), alarm_enabled ? cAlarmOn : cAlarmOff, COLOR_OFF, display::TextAlign::TOP_CENTER, "%s", alarm);
 
           if (!is_connected) {
             it.filled_rectangle(70, 148, 180, 25, Color(0xFF0000));
@@ -235,7 +297,7 @@ display:
           ESP_LOGD("main", "Allocate message buffer : %d chars", newLen);
           // copy message
           strcpy(lastMessage, incoming_msg);
-          ESP_LOGD("main", "New Message: %s", incoming_msg);
+          ESP_LOGI("main", "New Message: %s", incoming_msg);
           // reset scroller position
           pos = 0;
           delay = 0;
@@ -282,15 +344,40 @@ switch:
     name: LED Flash With Buzzer
     restore_mode: RESTORE_DEFAULT_ON
     optimistic: True
+  - platform: template
+    id: alarm_on
+    name: Alarm On
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: True
+  - platform: template
+    id: button_toggles_alarm
+    name: Button Toggles Alarm On/Off
+    optimistic: True
+    restore_mode: RESTORE_DEFAULT_ON
+  - platform: template
+    id: alarm_triggers_day
+    name: Alarm triggers day mode
+    optimistic: True
+    restore_mode: RESTORE_DEFAULT_ON
+
   
 interval:
   - interval: 250ms
     then:
       - lambda: |-
           static bool state = false;
+          static unsigned long auto_off = 0;
           bool led_tie_state = id(led_tie).state;
+          unsigned long now = (unsigned long) std::time(NULL);
+          int alarm_secs = int(id(alarm_seconds).state);
 
           if (id(buzzer).state) {
+            if (auto_off == 0 && alarm_secs > 0) {
+              // Buzzer just came on and alarm_secs defined >0
+              // Set an auto-off time at some point in the future
+              auto_off = now + alarm_secs;
+              ESP_LOGI("main", "Buzzer on");
+            }
             // Buzzer is sounding
             state = !state;
             if (state) {
@@ -304,6 +391,14 @@ interval:
                 id(led_out).turn_off();
               }
             }
+            
+            if (auto_off != 0 && now > auto_off) {
+              // Just reached our auto-off time, turn off and reset
+              ESP_LOGI("main", "Buzzer off by time setting");
+              id(buzzer).turn_off();
+              auto_off = 0;
+            }
+            
           } else {
             state = false;
             id(buzzer_out).turn_off();
@@ -312,13 +407,16 @@ interval:
             } else {
               id(led_out).turn_off();
             }
+            auto_off = 0;
           }
-
 
 text_sensor:
   - platform: homeassistant
     id: scroll_text_from_ha
     entity_id: ${scrolling_msg_sensor}
+  - platform: homeassistant
+    id: alarm_time
+    entity_id: ${alarm_time_text}
 
 output:
   - platform: ledc
@@ -360,4 +458,20 @@ binary_sensor:
         pullup: True
       number: GPIO04
       inverted: True
+    on_press: 
+      then:
+        - if:
+            condition: 
+              lambda: return id(buzzer).state;
+            then:
+              - switch.turn_off: buzzer
+              - logger.log: "Buzzer off by button"
+            else:
+              - if:
+                  condition:
+                    lambda: return id(button_toggles_alarm);
+                  then:
+                    - switch.toggle: alarm_on
 
+
+    
