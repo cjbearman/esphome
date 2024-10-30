@@ -15,8 +15,9 @@ Static Range : 192.168.21.1 -> 192.168.21.254
 | 192.168.21.3   | Control Panel (Bedroom) |
 | 192.168.21.5   | Gate Opener |
 | 192.168.21.6   | Garage Door Opener |
-| 192.168.21.7   | Bedroom Clock |
+| 192.168.21.7   | Bedroom Clock (old) |
 | 192.168.21.8   | Office Clock |
+| 192.168.21.9   | Bedroom Alarm Clock (new) |
 | 192.168.21.10  | Door Status Panel (Bedroom) |
 | 192.168.21.11  | Door Status Panel (Living Room) |
 | 192.168.21.12  | Door Status Panel (Office) |

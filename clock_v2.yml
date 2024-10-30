@@ -55,6 +55,12 @@ dashboard_import:
 # To have a "next url" for improv serial
 # web_server:
 
+globals:
+  - id: ticker_content
+    type: std::string
+    restore_value: False
+
+
 font:
   - file: "gfonts://Lekton"
     id: jumbo
@@ -282,7 +288,7 @@ display:
         }
 
         // Scroller gets updated on every interval      
-        const char *incoming_msg = id(scroll_text_from_ha).state.c_str();
+        const char *incoming_msg = id(ticker_content).c_str();
 
         if (lastMessage == NULL || strcmp(lastMessage, incoming_msg)) {
           // We haven't captured a last message, or the last message is not the same as the one provided by sensor
@@ -409,11 +415,24 @@ interval:
             }
             auto_off = 0;
           }
+  - interval: ${ticker_update_frequency}
+    then:
+      - http_request.get:
+            url: ${ticker_content_url}
+            capture_response: true
+            on_response: 
+              then:
+                - lambda: |-
+                    if (response->status_code == 200) {
+                      id(ticker_content) = body;   
+                      ESP_LOGD("main", "Ticker content updated");
+                    } else {
+                      ESP_LOGE("main", "Error on HTTP request for ticker content: %d", response->status_code);
+                    }
+
+
 
 text_sensor:
-  - platform: homeassistant
-    id: scroll_text_from_ha
-    entity_id: ${scrolling_msg_sensor}
   - platform: homeassistant
     id: alarm_time
     entity_id: ${alarm_time_text}
@@ -473,5 +492,8 @@ binary_sensor:
                   then:
                     - switch.toggle: alarm_on
 
-
+http_request:
+  timeout: 5s
+  follow_redirects: False
+  verify_ssl: false
     
