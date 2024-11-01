@@ -5,7 +5,7 @@ esphome:
   name_add_mac_suffix: false
   includes:
     - scroller.h
-    - colorscale.h
+    - cpalette.h
   project:
     name: esphome.web
     version: dev
@@ -129,13 +129,7 @@ display:
       static int pos = 0;                             // Scroller position
       static int delay = 0;                           // Scroller current delay
       static char buf[26];                            // Buffer for current visible scroller text
-      static const char *VERSION = "1.1";             // Clock version
-      static Color cDate = Color(0xD5C67A);           // Color for date element
-      static Color cClock = Color(0x06A77D);          // Color for clock element
-      static Color cMsg = Color(0xFFFFFF);            // Color for scrolling message
-      static Color cTemp = Color(0x888888);           // Color for temperature labels
-      static Color cNight = Color(0xFF0000);          // Color for night mode
-      static Color cBackground = Color(0x000000);     // Background color, i.e. black
+      static const char *VERSION = "1.2";             // Clock version
       static float lastIndoorTemp=-9999;              // Current and prior temperature values
       static float currentIndoorTemp; 
       static float lastOutdoorTemp=-9999;
@@ -159,13 +153,15 @@ display:
       // Assume daytime unless otherwise adjusted
       target_brightness = id(daytime_brightness).state;
 
+      bool color_change = update_palette(id(daytime_color_palette).active_index().value_or(0), id(nighttime_color_palette).active_index().value_or(0));
+
       if (!id(time_valid).state) {
         // INIT mode, because we don't have a valid time yet
         if (curMode != 0) {
           ESP_LOGD("main", "Full update, init mode");
-          it.clear();
-          it.printf(160, 0, id(small), cClock, COLOR_OFF, display::TextAlign::TOP_CENTER, "HA ESP clock v%s", VERSION);
-          it.printf(160, 140, id(medium), cDate, COLOR_OFF, display::TextAlign::CENTER, "Connecting...");
+          it.fill(PAL_BACKGROUND);
+          it.printf(160, 0, id(small), PAL_CLOCK, PAL_BACKGROUND, display::TextAlign::TOP_CENTER, "HA ESP clock v%s", VERSION);
+          it.printf(160, 140, id(medium), PAL_DATE, PAL_BACKGROUND, display::TextAlign::CENTER, "Connecting...");
           curMode = 0;
         }
       } else if (id(night_mode).state) {        
@@ -177,10 +173,10 @@ display:
         }
 
         strftime(currentTime, 65, tfn, &c_tm);
-        if (strcmp(currentTime, lastTime) || curMode != 1) {
+        if (strcmp(currentTime, lastTime) || curMode != 1 || color_change) {
           ESP_LOGD("main", "Full update, night mode");
-          it.clear();
-          it.printf(160, 120, id(jumbo), cNight, COLOR_OFF, display::TextAlign::CENTER, "%s", currentTime);
+          it.fill(PAL_NIGHT_BACKGROUND);
+          it.printf(160, 120, id(jumbo), PAL_NIGHT_FOREGROUND, PAL_NIGHT_BACKGROUND, display::TextAlign::CENTER, "%s", currentTime);
           strcpy(lastTime, currentTime);
           curMode = 1;
         }
@@ -196,7 +192,7 @@ display:
         currentIndoorTemp = id(indoor_temp).state;
         currentOutdoorTemp = id(outdoor_temp).state;
         is_connected = id(pstatus).state;
-        if (strcmp(currentTime, lastTime) || currentIndoorTemp != lastIndoorTemp || currentOutdoorTemp != lastOutdoorTemp || curMode != 2 || last_is_connected != is_connected) {
+        if (strcmp(currentTime, lastTime) || currentIndoorTemp != lastIndoorTemp || currentOutdoorTemp != lastOutdoorTemp || curMode != 2 || last_is_connected != is_connected || color_change) {
           // Full update only if time (or date by implication), or temps have changed, or mode switch, or connectivity change
           // This is an expensive operation, so we restrict it to when absolutely necessary
           // so that we can have fast scrolling at other times
@@ -206,18 +202,18 @@ display:
           lastIndoorTemp = currentIndoorTemp;
           last_is_connected = is_connected;
           curMode = 2;
-          it.clear();
-          it.printf(160, 80, id(large), cClock, COLOR_OFF, display::TextAlign::CENTER, "%s", currentTime);
+          it.fill(PAL_BACKGROUND);
+          it.printf(160, 80, id(large), PAL_CLOCK, PAL_BACKGROUND, display::TextAlign::CENTER, "%s", currentTime);
           strftime(currentDate, 65, df, &c_tm);
-          it.printf(160, 0, id(medium), cDate, COLOR_OFF, display::TextAlign::TOP_CENTER, "%s", currentDate);
-          it.printf(0, 200, id(small), cTemp, COLOR_OFF, display::TextAlign::BOTTOM_LEFT, "Outdoor");
-          it.printf(0, 240, id(medium), Color(outdoorColor(currentOutdoorTemp)), COLOR_OFF, display::TextAlign::BOTTOM_LEFT, "%.1f°", currentOutdoorTemp);
-          it.printf(220, 200, id(small), cTemp, COLOR_OFF, display::TextAlign::BOTTOM_LEFT, "Indoor");
-          it.printf(220, 240, id(medium), Color(indoorColor(currentIndoorTemp)), COLOR_OFF, display::TextAlign::BOTTOM_LEFT, "%.1f°", currentIndoorTemp);
+          it.printf(160, 0, id(medium), PAL_DATE, PAL_BACKGROUND, display::TextAlign::TOP_CENTER, "%s", currentDate);
+          it.printf(0, 200, id(small), PAL_LABELS, PAL_BACKGROUND, display::TextAlign::BOTTOM_LEFT, "Outdoor");
+          it.printf(0, 240, id(medium), outdoor(currentOutdoorTemp), PAL_BACKGROUND, display::TextAlign::BOTTOM_LEFT, "%.1f°", currentOutdoorTemp);
+          it.printf(220, 200, id(small), PAL_LABELS, PAL_BACKGROUND, display::TextAlign::BOTTOM_LEFT, "Indoor");
+          it.printf(220, 240, id(medium), indoor(currentIndoorTemp), PAL_BACKGROUND, display::TextAlign::BOTTOM_LEFT, "%.1f°", currentIndoorTemp);
 
           if (!is_connected) {
-            it.filled_rectangle(70, 148, 180, 25, Color(0xFF0000));
-            it.printf(160, 150, id(small), Color(0xFFFFFF), Color(0xFF0000), display::TextAlign::TOP_CENTER, "No Connection");
+            it.filled_rectangle(70, 148, 180, 25, Color(PAL_ALERT_BACKGROUND));
+            it.printf(160, 150, id(small), PAL_ALERT_FOREGROUND, PAL_ALERT_BACKGROUND, display::TextAlign::TOP_CENTER, "No Connection");
           }
         }
 
@@ -248,9 +244,9 @@ display:
 
         scroller(lastMessage, buf, sizeof(buf), &pos, &delay, delayCycles);
         // Blank out the background behind the scroller
-        it.filled_rectangle(0, 118, 320, 26, cBackground);
+        it.filled_rectangle(0, 118, 320, 26, PAL_BACKGROUND);
         // And redraw
-        it.printf(0, 120, id(small), cMsg, COLOR_OFF, display::TextAlign::TOP_LEFT, "%s", buf);
+        it.printf(0, 120, id(small), PAL_MSG, PAL_BACKGROUND, display::TextAlign::TOP_LEFT, "%s", buf);
       }
 
       if (target_brightness != last_brightness) {
@@ -315,4 +311,31 @@ interval:
                       ESP_LOGE("main", "Error on HTTP request for ticker content: %d", response->status_code);
                     }
 
+
+select:
+  - platform: template
+    id: daytime_color_palette
+    name: Daytime Color
+    options:
+      - "Original"
+      - "Pastel"
+      - "Blues"
+      - "Greens"
+      - "Monochrome"
+    optimistic: True
+    initial_option: "Original"
+    restore_value: True
+  - platform: template
+    id: nighttime_color_palette
+    name: Nighttime Color
+    options:
+      - "Red"
+      - "Green"
+      - "Yellow"
+      - "Blue"
+      - "White"
+      - "Black on White"
+    optimistic: True
+    initial_option: "Red"
+    restore_value: True
 
