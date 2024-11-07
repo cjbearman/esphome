@@ -153,8 +153,8 @@ light:
             // Establish current states
             states[0] = id(front_door).state > 0 ? 1 : 0;
             states[1] = id(back_door).state > 0 ? 1 : ( id(back_door_lock).state == "SECURED" ? 0 : 2 );
-            states[2] = id(pool_door).state > 0 ? 1 : 0;
-            states[3] = id(side_door).state > 0 ? 1 : 0;
+            states[2] = id(side_door).state > 0 ? 1 : 0;
+            states[3] = id(pool_door).state > 0 ? 1 : 0;
             states[4] = id(gdo_large).state == 0 ? 1 : 0;
             states[5] = id(gdo_small).state == 0 ? 1 : 0;
             states[6] = id(gate).state == 0 ? 1 : 0;
